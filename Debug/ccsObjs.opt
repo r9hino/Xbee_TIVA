@@ -1,1 +1,0 @@
-"./Xbee_Tiva.obj" "./startup_ccs.obj" "./utils/uartstdio.obj" "../driverlib.lib" "../tm4c123gh6pm.cmd" -l"libc.a" -l"C:\ti\TivaWare_C_Series-2.1.0.12573\driverlib\ccs\Debug\driverlib.lib" 

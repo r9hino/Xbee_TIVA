@@ -14,7 +14,6 @@
 #include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
 #include "driverlib/uart.h"
-#include "utils/uartstdio.h"
 
 
 // Defines *******************************************************************************************
@@ -72,6 +71,14 @@ void resetXbeeFrameData() {
 
 
 // Functions -----------------------------------------------------------------------------------------
+
+// Send string to UART0 using uart.h driver.
+void UART0Send(const uint8_t *pui8Buffer, uint32_t ui32Count){
+	while(ui32Count--){
+		ROM_UARTCharPut(UART0_BASE, *pui8Buffer++);
+	}
+}
+
 void UART1IntHandler(void){
 	uint32_t ui32Status;
 	uint8_t rxB;	// Received xbee byte.
@@ -89,8 +96,8 @@ void UART1IntHandler(void){
 	while (ROM_UARTCharsAvail(UART1_BASE)) {
 		rxB = (uint8_t)ROM_UARTCharGetNonBlocking(UART1_BASE);	// Be careful because UARTCharGetNonBlocking return -1 when there is not data.
 
+		// Check if new packet start before previous packet completed. Discard previous packet and start over
 		if (tXbeeFrame.pos > 0 && rxB == START_BYTE) {
-			// new packet start before previous packeted completed -- discard previous packet and start over
 			tXbeeFrame.errorCode = UNEXPECTED_START_BYTE;
 		    return;
 		}
@@ -98,7 +105,7 @@ void UART1IntHandler(void){
 		if ((tXbeeFrame.pos > 0) && (rxB == ESCAPE_BYTE)) {
 			// Escape byte.  Next byte will be.
 			tXbeeFrame.escape = true;
-			continue;
+			continue;	// Re-execute while()
 		}
 
 		// If previous byte was an escape byte, then next byte must be XOR'ed.
@@ -122,28 +129,23 @@ void UART1IntHandler(void){
 				break;
 			case 2:
 				// lsb length
-				tXbeeFrame.lsbRxFrameLength = rxB;//rxFrameLengthCalculation();
+				tXbeeFrame.lsbRxFrameLength = rxB;	//rxFrameLengthCalculation();
 				break;
 			case 3:
 				tXbeeFrame.frameType = rxB;
-				//_serialPrint->print(b, HEX);
-				//_serialPrint->print(" ");
 				break;
 			default:
 				// Starts at fifth byte
 				if (tXbeeFrame.pos > MAX_FRAME_DATA_SIZE) {
-					// Exceed max size.
-					//_serialPrint->println("Error 2");
+					// Exceed max size (Error code is 2).
 					tXbeeFrame.errorCode = PACKET_EXCEEDS_BYTE_ARRAY_LENGTH;
 					return;
 				}
 
 				// Store received data message from ZB Receive Packet frame (0x90)
-				if (tXbeeFrame.frameType == 0x90) {
-					if ((tXbeeFrame.pos >= RECEIVED_DATA_IDX) && (tXbeeFrame.pos < (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX))) {
-						tXbeeFrame.message[tXbeeFrame.messageIdx] = rxB;
-						tXbeeFrame.messageIdx++;
-					}
+				if ((tXbeeFrame.pos >= RECEIVED_DATA_IDX) && (tXbeeFrame.pos < (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) && (tXbeeFrame.frameType == 0x90)) {
+					tXbeeFrame.message[tXbeeFrame.messageIdx] = rxB;
+					tXbeeFrame.messageIdx++;
 				}
 
 				// Check if we are at the end of the packet.
@@ -156,19 +158,15 @@ void UART1IntHandler(void){
 				}
 		}
 
+		// Store each received frame byte in rxFrameData array.
 		tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
-		tXbeeFrame.pos++;
-
 		// Write back to UART0 for PC displaying
 		ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);
-		//ROM_UARTCharPut(UART0_BASE, 0xAB);
-	}
-}
+		if (tXbeeFrame.pos == (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) {
+			UART0Send((uint8_t *)"\n\r", 2);	// If the last byte was received, then send new line and return commands.
+		}
 
-
-void UARTSend(const uint8_t *pui8Buffer, uint32_t ui32Count){
-	while(ui32Count--){
-		ROM_UARTCharPut(UART0_BASE, *pui8Buffer++);
+		tXbeeFrame.pos++;
 	}
 }
 
@@ -186,7 +184,7 @@ void ConfigureUART0(void){
     // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
 	// The following two lines must be present. Why?
     ROM_UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC);
-    UARTStdioConfig(0, 115200, 16000000);
+    ROM_UARTConfigSetExpClk(UART0_BASE, 16000000, 115200, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
 }
 
 void ConfigureUART1(void){
@@ -203,7 +201,7 @@ void ConfigureUART1(void){
     // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
 	// The following two lines must be present. Why?
     ROM_UARTClockSourceSet(UART1_BASE, UART_CLOCK_PIOSC);
-    UARTStdioConfig(1, 9600, 16000000);
+    ROM_UARTConfigSetExpClk(UART1_BASE, 16000000, 9600, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
 
 	// Enable the UART1 interrupt.
 	ROM_IntEnable(INT_UART1);
@@ -224,16 +222,14 @@ int main(void){
 
 	ConfigureUART0();
 	ConfigureUART1();
-	// Enable the UART0 interrupt.
-	//ROM_IntEnable(INT_UART0);
-	//ROM_UARTIntEnable(UART0_BASE, UART_INT_RX | UART_INT_RT);
 
 	// Prompt for text to be entered.
-	UARTSend((uint8_t *)"12345678901234567890\n\r", 22);
+	UART0Send((uint8_t *)"\n\r12345678901234567890\n\r", 24);
 
 	// Enable interrupts
 	ROM_IntMasterEnable();
 
+	// Initialize xbee frame structure parameters.
 	resetXbeeFrameData();
 	// Loop forever echoing data through the UART.
 	while(1){

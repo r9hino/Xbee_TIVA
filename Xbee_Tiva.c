@@ -1,5 +1,5 @@
 //****************************************************************************************************
-// Basic Xbee + Tiva example:
+// Basic xbee + Tiva example:
 // UART1 configured to receive xbee data with 9600 baud rate.
 // All data received by UART1 is sended to UART0 (115200) for PC displaying.
 //****************************************************************************************************
@@ -17,6 +17,60 @@
 #include "utils/uartstdio.h"
 
 
+// Defines *******************************************************************************************
+#define LED_RED GPIO_PIN_1
+#define LED_BLUE GPIO_PIN_2
+#define LED_GREEN GPIO_PIN_3
+
+// Xbee Defines **************************************************************************************
+#define MAX_FRAME_DATA_SIZE	      24
+#define FRAME_TYPE_IDX		       3
+#define RECEIVED_DATA_IDX		  15	// Idx for received data in ZB Receive Packet frame
+// Especial data frame bytes
+#define START_BYTE	 		  	0x7E
+#define ESCAPE_BYTE				0x7D
+// Possible error type when receiving data packets.
+#define NO_ERROR							0
+#define CHECKSUM_FAILURE					1
+#define PACKET_EXCEEDS_BYTE_ARRAY_LENGTH	2
+#define UNEXPECTED_START_BYTE				3
+
+
+// Global variables **********************************************************************************
+
+// Data frame structure. Save frame parameters.
+typedef struct {
+	uint8_t rxFrameData[MAX_FRAME_DATA_SIZE];	// Store UART1 received data.
+	uint8_t pos;				// Store received byte position in frame.
+	uint8_t lsbRxFrameLength;	// Store frame length. msb not used because frames are shorts.
+	uint8_t frameType;
+	bool rx_complete;			// True when all frame packets were successfully received.
+	uint16_t rxChecksumTotal;	// Save frame checksum.
+	uint8_t message[MAX_FRAME_DATA_SIZE - 16];	// Store message received from ZB Receive Packet frame.
+	uint8_t messageIdx;			// Index for each message byte.
+	uint8_t errorCode;
+	bool escape;				// True when next frame byte will be the original escaped byte.
+} tXbee;
+volatile tXbee tXbeeFrame;
+
+void resetXbeeFrameData() {
+	uint8_t i;
+	for (i = 0; i<MAX_FRAME_DATA_SIZE; i++) {
+		tXbeeFrame.rxFrameData[i] = 0;
+		// Clear message array of length (MAX_FRAME_DATA_SIZE - 16).
+		if(i < MAX_FRAME_DATA_SIZE - 16)   tXbeeFrame.message[i] = 0;
+	}
+	tXbeeFrame.pos = 0;
+	tXbeeFrame.lsbRxFrameLength = 0;
+	tXbeeFrame.frameType = 0;
+	tXbeeFrame.rx_complete = false;
+	tXbeeFrame.rxChecksumTotal = 0;
+	tXbeeFrame.messageIdx = 0;
+	tXbeeFrame.errorCode = 0;
+	tXbeeFrame.escape = false;
+}
+
+
 // Functions -----------------------------------------------------------------------------------------
 void UART1IntHandler(void){
 	uint32_t ui32Status;
@@ -27,14 +81,90 @@ void UART1IntHandler(void){
 	// Clear the asserted interrupts. Must be done early in handler.
 	ROM_UARTIntClear(UART1_BASE, ui32Status);
 
+	// Clear all old frame parameters when new frame arrive.
+	if (tXbeeFrame.rx_complete || tXbeeFrame.errorCode) {
+		resetXbeeFrameData();
+	}
+
 	while (ROM_UARTCharsAvail(UART1_BASE)) {
-		rxB = (uint8_t)ROM_UARTCharGetNonBlocking(UART1_BASE);	// Be carefull because UARTCharGetNonBlocking return -1 when there is not data.
+		rxB = (uint8_t)ROM_UARTCharGetNonBlocking(UART1_BASE);	// Be careful because UARTCharGetNonBlocking return -1 when there is not data.
+
+		if (tXbeeFrame.pos > 0 && rxB == START_BYTE) {
+			// new packet start before previous packeted completed -- discard previous packet and start over
+			tXbeeFrame.errorCode = UNEXPECTED_START_BYTE;
+		    return;
+		}
+
+		if ((tXbeeFrame.pos > 0) && (rxB == ESCAPE_BYTE)) {
+			// Escape byte.  Next byte will be.
+			tXbeeFrame.escape = true;
+			continue;
+		}
+
+		// If previous byte was an escape byte, then next byte must be XOR'ed.
+		if (tXbeeFrame.escape == true) {
+			rxB = 0x20 ^ rxB;
+			tXbeeFrame.escape = false;
+		}
+
+		// Checksum includes all bytes after frame type byte.
+		if (tXbeeFrame.pos >= FRAME_TYPE_IDX) {
+			tXbeeFrame.rxChecksumTotal += rxB;
+		}
+
+		switch(tXbeeFrame.pos) {
+			case 0:
+				if (rxB == START_BYTE) {
+				}
+				break;
+			case 1:
+				// msb length shouldn't be used because frames length will be short.
+				break;
+			case 2:
+				// lsb length
+				tXbeeFrame.lsbRxFrameLength = rxB;//rxFrameLengthCalculation();
+				break;
+			case 3:
+				tXbeeFrame.frameType = rxB;
+				//_serialPrint->print(b, HEX);
+				//_serialPrint->print(" ");
+				break;
+			default:
+				// Starts at fifth byte
+				if (tXbeeFrame.pos > MAX_FRAME_DATA_SIZE) {
+					// Exceed max size.
+					//_serialPrint->println("Error 2");
+					tXbeeFrame.errorCode = PACKET_EXCEEDS_BYTE_ARRAY_LENGTH;
+					return;
+				}
+
+				// Store received data message from ZB Receive Packet frame (0x90)
+				if (tXbeeFrame.frameType == 0x90) {
+					if ((tXbeeFrame.pos >= RECEIVED_DATA_IDX) && (tXbeeFrame.pos < (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX))) {
+						tXbeeFrame.message[tXbeeFrame.messageIdx] = rxB;
+						tXbeeFrame.messageIdx++;
+					}
+				}
+
+				// Check if we are at the end of the packet.
+				if (tXbeeFrame.pos == (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) {
+					// rxChecksumTotal has included the checksum byte in it.
+					if ((tXbeeFrame.rxChecksumTotal & 0xff) == 0xff) {
+						tXbeeFrame.rx_complete = true;
+						tXbeeFrame.errorCode = NO_ERROR;
+					}
+				}
+		}
+
+		tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
+		tXbeeFrame.pos++;
 
 		// Write back to UART0 for PC displaying
 		ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);
 		//ROM_UARTCharPut(UART0_BASE, 0xAB);
 	}
 }
+
 
 void UARTSend(const uint8_t *pui8Buffer, uint32_t ui32Count){
 	while(ui32Count--){
@@ -53,12 +183,9 @@ void ConfigureUART0(void){
 	ROM_GPIOPinConfigure(GPIO_PA1_U0TX);
 	ROM_GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
 
-	// Configure the UART for 115,200, 8-N-1 operation.
-	//ROM_UARTConfigSetExpClk(UART0_BASE, ROM_SysCtlClockGet(), 115200, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
-
     // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
 	// The following two lines must be present. Why?
-    UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC);
+    ROM_UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC);
     UARTStdioConfig(0, 115200, 16000000);
 }
 
@@ -75,7 +202,7 @@ void ConfigureUART1(void){
 
     // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
 	// The following two lines must be present. Why?
-    UARTClockSourceSet(UART1_BASE, UART_CLOCK_PIOSC);
+    ROM_UARTClockSourceSet(UART1_BASE, UART_CLOCK_PIOSC);
     UARTStdioConfig(1, 9600, 16000000);
 
 	// Enable the UART1 interrupt.
@@ -107,6 +234,7 @@ int main(void){
 	// Enable interrupts
 	ROM_IntMasterEnable();
 
+	resetXbeeFrameData();
 	// Loop forever echoing data through the UART.
 	while(1){
 

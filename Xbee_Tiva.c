@@ -14,6 +14,7 @@
 #include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
 #include "driverlib/uart.h"
+#include "utils/ustdlib.h"
 
 
 // Defines *******************************************************************************************
@@ -45,12 +46,29 @@ typedef struct {
 	uint8_t frameType;
 	bool rx_complete;			// True when all frame packets were successfully received.
 	uint16_t rxChecksumTotal;	// Save frame checksum.
-	uint8_t message[MAX_FRAME_DATA_SIZE - 16];	// Store message received from ZB Receive Packet frame.
+	char message[MAX_FRAME_DATA_SIZE - 16];	// Store message received from ZB Receive Packet frame.
 	uint8_t messageIdx;			// Index for each message byte.
 	uint8_t errorCode;
 	bool escape;				// True when next frame byte will be the original escaped byte.
 } tXbee;
-volatile tXbee tXbeeFrame;
+tXbee tXbeeFrame;
+
+// Store expected string to be received on message array from xbee module.
+// Array size must be equal to message array size in tXbee struct.
+// MAX_FRAME_DATA_SIZE - 16 = 8. This way dynamically memory allocation is avoided.
+const char stringOn[MAX_FRAME_DATA_SIZE - 16] = {'o','n',0,0,0,0,0,0};
+const char stringOff[MAX_FRAME_DATA_SIZE - 16] = {'o','f','f',0,0,0,0,0};
+
+
+// Functions -----------------------------------------------------------------------------------------
+
+// Send string to UART0 using uart.h driver.
+void UART0Send(const char *stringBuffer){
+	uint8_t stringLength = ustrlen(stringBuffer);	// Get string length.
+	while(stringLength--){
+		ROM_UARTCharPut(UART0_BASE, *stringBuffer++);
+	}
+}
 
 void resetXbeeFrameData() {
 	uint8_t i;
@@ -67,16 +85,6 @@ void resetXbeeFrameData() {
 	tXbeeFrame.messageIdx = 0;
 	tXbeeFrame.errorCode = 0;
 	tXbeeFrame.escape = false;
-}
-
-
-// Functions -----------------------------------------------------------------------------------------
-
-// Send string to UART0 using uart.h driver.
-void UART0Send(const uint8_t *pui8Buffer, uint32_t ui32Count){
-	while(ui32Count--){
-		ROM_UARTCharPut(UART0_BASE, *pui8Buffer++);
-	}
 }
 
 void UART1IntHandler(void){
@@ -96,7 +104,7 @@ void UART1IntHandler(void){
 	while (ROM_UARTCharsAvail(UART1_BASE)) {
 		rxB = (uint8_t)ROM_UARTCharGetNonBlocking(UART1_BASE);	// Be careful because UARTCharGetNonBlocking return -1 when there is not data.
 
-		// Check if new packet start before previous packet completed. Discard previous packet and start over
+		// Check if new packet start before previous packet completed. Discard previous packet and start over.
 		if (tXbeeFrame.pos > 0 && rxB == START_BYTE) {
 			tXbeeFrame.errorCode = UNEXPECTED_START_BYTE;
 		    return;
@@ -162,8 +170,9 @@ void UART1IntHandler(void){
 		tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
 		// Write back to UART0 for PC displaying
 		ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);
+		// If the last byte was received, then send new line and return commands.
 		if (tXbeeFrame.pos == (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) {
-			UART0Send((uint8_t *)"\n\r", 2);	// If the last byte was received, then send new line and return commands.
+			UART0Send((char *)"\n\r");
 		}
 
 		tXbeeFrame.pos++;
@@ -205,10 +214,12 @@ void ConfigureUART1(void){
 
 	// Enable the UART1 interrupt.
 	ROM_IntEnable(INT_UART1);
-	ROM_UARTFIFOLevelSet(UART1_BASE, UART_FIFO_TX1_8, UART_FIFO_RX1_8);
+
 	// Two interrupt triggers: UART RX interrupt for a 1/8 of FIFO queue,
 	// and Receive Timeout (RT) interrupt when 1/8 FIFO is not reach.
 	ROM_UARTIntEnable(UART1_BASE, UART_INT_RX | UART_INT_RT);
+
+	ROM_UARTFIFOLevelSet(UART1_BASE, UART_FIFO_TX1_8, UART_FIFO_RX1_8);
 }
 
 // Main ----------------------------------------------------------------------------------------------
@@ -224,15 +235,21 @@ int main(void){
 	ConfigureUART1();
 
 	// Prompt for text to be entered.
-	UART0Send((uint8_t *)"\n\r12345678901234567890\n\r", 24);
+	UART0Send((char *)"\n\r12345678901234567890\n\r");
 
 	// Enable interrupts
 	ROM_IntMasterEnable();
 
 	// Initialize xbee frame structure parameters.
 	resetXbeeFrameData();
-	// Loop forever echoing data through the UART.
-	while(1){
 
+
+	while(1){
+		if(!ustrcmp(tXbeeFrame.message, stringOn)){
+			ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_GREEN);
+		}
+		if(!ustrcmp(tXbeeFrame.message, stringOff)){
+			ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_RED);
+		}
 	}
 }

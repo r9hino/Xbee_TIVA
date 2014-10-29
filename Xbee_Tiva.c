@@ -6,15 +6,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "inc/hw_ints.h"
 #include "inc/hw_memmap.h"
 #include "driverlib/gpio.h"
-#include "driverlib/interrupt.h"
-#include "driverlib/pin_map.h"
 #include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
-#include "driverlib/uart.h"
 #include "utils/ustdlib.h"
+#include "init_config.h"
 
 
 // Defines *******************************************************************************************
@@ -23,12 +20,12 @@
 #define LED_GREEN GPIO_PIN_3
 
 // Xbee Defines **************************************************************************************
-#define MAX_FRAME_DATA_SIZE	      24
-#define FRAME_TYPE_IDX		       3
-#define RECEIVED_DATA_IDX		  15	// Idx for received data in ZB Receive Packet frame
+#define MAX_FRAME_DATA_SIZE	      		   24
+#define FRAME_TYPE_IDX		       		    3
+#define RECEIVED_DATA_IDX		  		   15	// Idx for received data in ZB Receive Packet frame
 // Especial data frame bytes
-#define START_BYTE	 		  	0x7E
-#define ESCAPE_BYTE				0x7D
+#define START_BYTE	 		  			 0x7E
+#define ESCAPE_BYTE				         0x7D
 // Possible error type when receiving data packets.
 #define NO_ERROR							0
 #define CHECKSUM_FAILURE					1
@@ -53,14 +50,14 @@ typedef struct {
 } tXbee;
 tXbee tXbeeFrame;
 
-// Store expected string to be received on message array from xbee module.
+// Store expected string to be received on message array in tXbee struct.
 // Array size must be equal to message array size in tXbee struct.
 // MAX_FRAME_DATA_SIZE - 16 = 8. This way dynamically memory allocation is avoided.
 const char stringOn[MAX_FRAME_DATA_SIZE - 16] = {'o','n',0,0,0,0,0,0};
 const char stringOff[MAX_FRAME_DATA_SIZE - 16] = {'o','f','f',0,0,0,0,0};
 
 
-// Functions -----------------------------------------------------------------------------------------
+// Functions ******************************************************************************************
 
 // Send string to UART0 using uart.h driver.
 void UART0Send(const char *stringBuffer){
@@ -177,49 +174,6 @@ void UART1IntHandler(void){
 
 		tXbeeFrame.pos++;
 	}
-}
-
-void ConfigureUART0(void){
-    // Enable the GPIO Peripheral used by the UART.
-    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);
-    // Enable UART0
-    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);
-
-	// Set GPIO A0 and A1 as UART pins.
-	ROM_GPIOPinConfigure(GPIO_PA0_U0RX);
-	ROM_GPIOPinConfigure(GPIO_PA1_U0TX);
-	ROM_GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
-
-    // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
-	// The following two lines must be present. Why?
-    ROM_UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC);
-    ROM_UARTConfigSetExpClk(UART0_BASE, 16000000, 115200, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
-}
-
-void ConfigureUART1(void){
-    // Enable the GPIO Peripheral used by the UART.
-    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
-    // Enable UART1
-    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_UART1);
-
-	// Set GPIO B0 and B1 as UART pins.
-	ROM_GPIOPinConfigure(GPIO_PB0_U1RX);
-	ROM_GPIOPinConfigure(GPIO_PB1_U1TX);
-	ROM_GPIOPinTypeUART(GPIO_PORTB_BASE, GPIO_PIN_0 | GPIO_PIN_1);
-
-    // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
-	// The following two lines must be present. Why?
-    ROM_UARTClockSourceSet(UART1_BASE, UART_CLOCK_PIOSC);
-    ROM_UARTConfigSetExpClk(UART1_BASE, 16000000, 9600, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
-
-	// Enable the UART1 interrupt.
-	ROM_IntEnable(INT_UART1);
-
-	// Two interrupt triggers: UART RX interrupt for a 1/8 of FIFO queue,
-	// and Receive Timeout (RT) interrupt when 1/8 FIFO is not reach.
-	ROM_UARTIntEnable(UART1_BASE, UART_INT_RX | UART_INT_RT);
-
-	ROM_UARTFIFOLevelSet(UART1_BASE, UART_FIFO_TX1_8, UART_FIFO_RX1_8);
 }
 
 // Main ----------------------------------------------------------------------------------------------

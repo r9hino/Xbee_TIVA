@@ -12,12 +12,15 @@
 #include "driverlib/gpio.h"
 #include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
+#include "driverlib/timer.h"
 #include "utils/ustdlib.h"
 #include "init_config.h"
 
 
 // *****************************************************************************************
 // Defines
+
+// LED GPIOs
 #define LED_RED GPIO_PIN_1
 #define LED_BLUE GPIO_PIN_2
 #define LED_GREEN GPIO_PIN_3
@@ -170,6 +173,7 @@ void UART1IntHandler(void){
 
 	while (ROM_UARTCharsAvail(UART1_BASE)) {
 		rxB = (uint8_t)ROM_UARTCharGetNonBlocking(UART1_BASE);	// Be careful because UARTCharGetNonBlocking return -1 when there is not data.
+		ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
 
 		// Check if new packet start before previous packet completed. Discard previous packet and start over.
 		if (tXbeeFrame.pos > 0 && rxB == START_BYTE) {
@@ -197,27 +201,23 @@ void UART1IntHandler(void){
 		switch(tXbeeFrame.pos) {
 			case 0:
 				if (rxB == START_BYTE) {
-					ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
 					tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
 					tXbeeFrame.pos++;
 				}
 				break;
 			case 1:
 				// msb length shouldn't be used because frames length will be short.
-				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
 				tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
 				tXbeeFrame.pos++;
 				break;
 			case 2:
 				// lsb length
 				tXbeeFrame.lsbRxFrameLength = rxB;	//rxFrameLengthCalculation();
-				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
 				tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
 				tXbeeFrame.pos++;
 				break;
 			case 3:
 				tXbeeFrame.frameType = rxB;
-				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
 				tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
 				tXbeeFrame.pos++;
 				break;
@@ -228,8 +228,6 @@ void UART1IntHandler(void){
 					tXbeeFrame.errorCode = PACKET_EXCEEDS_BYTE_ARRAY_LENGTH;
 					return;
 				}
-
-				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
 
 				// Store received data message from ZB Receive Packet frame (0x90)
 				if ((tXbeeFrame.pos >= RECEIVED_DATA_IDX) && (tXbeeFrame.pos < (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) && (tXbeeFrame.frameType == 0x90)) {
@@ -245,7 +243,6 @@ void UART1IntHandler(void){
 						tXbeeFrame.errorCode = NO_ERROR;
 						UART0Send((uint8_t *)"\n\r");	// With last byte received, send new line and return commands.
 
-						ZBTransmitRequest((uint8_t *)"t20.5|h50.2|l180.5");
 						if(!ustrcmp((char *)tXbeeFrame.message, (char *)stringOn)){
 							ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_GREEN);
 						}
@@ -265,6 +262,19 @@ void UART1IntHandler(void){
 	}
 }
 
+//*****************************************************************************
+// The interrupt handler for TIMER0 interrupt. It periodically transmit read sensor data.
+void Timer0IntHandler(void) {
+    // Clear the timer interrupt.
+    ROM_TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+
+    // Use the flags to Toggle the LED for this timer.
+    ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_BLUE);
+    ROM_SysCtlDelay(ROM_SysCtlClockGet() / 1000);
+    ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, 0);
+
+    ZBTransmitRequest((uint8_t *)"t20.5|h50.2|l180.5");
+}
 
 // Main ----------------------------------------------------------------------------------------------
 int main(void){
@@ -275,11 +285,13 @@ int main(void){
 	ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
 	ROM_GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_RED|LED_BLUE|LED_GREEN);
 
+	ConfigureTimer0();
+
 	ConfigureUART0();
 	ConfigureUART1();
 
 	// Prompt for text to be entered.
-	UART0Send((uint8_t *)"\n\r12345678901234567890\n\r");
+	UART0Send((uint8_t *)"\n\rWSN Tiva TM4C123G + Xbee Module\n\r");
 
 	// Enable interrupts
 	ROM_IntMasterEnable();
@@ -301,3 +313,4 @@ int main(void){
 		}*/
 	}
 }
+

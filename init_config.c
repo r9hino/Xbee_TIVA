@@ -13,9 +13,19 @@
 #include "driverlib/pin_map.h"
 #include "driverlib/rom.h"
 #include "driverlib/sysctl.h"
+#include "driverlib/timer.h"
 #include "driverlib/uart.h"
 #include "init_config.h"
 
+void ConfigureTimer0 (void) {
+	// Enable Timer0
+	ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
+	ROM_TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
+	ROM_TimerLoadSet(TIMER0_BASE, TIMER_A, TIMER_PERIOD_5SEC*ROM_SysCtlClockGet());
+	ROM_TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+	ROM_IntEnable(INT_TIMER0A);
+	ROM_TimerEnable(TIMER0_BASE, TIMER_A);
+}
 
 void ConfigureUART0(void){
     // Enable the GPIO Peripheral used by the UART.

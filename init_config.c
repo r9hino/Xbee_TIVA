@@ -2,7 +2,7 @@
  * init_config.c
  *
  *  Created on: 28-10-2014
- *      Author: r9hino
+ *      Author: Philippe Ilharreguy
  */
 
 #include <stdint.h>

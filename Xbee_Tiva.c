@@ -16,12 +16,13 @@
 #include "init_config.h"
 
 
-// Defines *******************************************************************************************
+// *****************************************************************************************
+// Defines
 #define LED_RED GPIO_PIN_1
 #define LED_BLUE GPIO_PIN_2
 #define LED_GREEN GPIO_PIN_3
 
-// Xbee Defines **************************************************************************************
+// Xbee Defines
 #define MAX_FRAME_DATA_SIZE	      		   24
 #define FRAME_TYPE_IDX		       		    3
 #define RECEIVED_DATA_IDX		  		   15	// Idx for received data in ZB Receive Packet frame
@@ -34,6 +35,7 @@
 #define NO_ERROR							0
 #define CHECKSUM_FAILURE					1
 #define PACKET_EXCEEDS_BYTE_ARRAY_LENGTH	2
+#define UNEXPECTED_START_BYTE				3
 // Escape macros definitions
 #define ESCAPE_OFF 						    0
 #define ESCAPE_ON  							1
@@ -42,7 +44,8 @@
 #define ZB_TRANSMIT_REQUEST				 0x10
 #define ZB_RECEIVE_PACKET				 0x90
 
-// Global variables **********************************************************************************
+// *****************************************************************************************
+// Global variables
 
 // Data frame structure. Save frame parameters.
 typedef struct {
@@ -66,16 +69,18 @@ const uint8_t stringOn[MAX_FRAME_DATA_SIZE - 16] = {'o','n',0,0,0,0,0,0};
 const uint8_t stringOff[MAX_FRAME_DATA_SIZE - 16] = {'o','f','f',0,0,0,0,0};
 
 
-// Functions ******************************************************************************************
+// *****************************************************************************************
+// Functions
 
-// Send string to UART0 using uart.h driver.
+// *****************************************************************************************
+// Send string to PC from UART0 using uart.h driver.
 void UART0Send(const uint8_t *stringBuffer){
 	uint8_t stringLength = ustrlen((char *)stringBuffer);	// Get string length.
 	while(stringLength--){
 		ROM_UARTCharPut(UART0_BASE, *stringBuffer++);
 	}
 }
-
+// *****************************************************************************************
 void resetXbeeFrameData() {
 	uint8_t i;
 	for (i = 0; i<MAX_FRAME_DATA_SIZE; i++) {
@@ -93,7 +98,7 @@ void resetXbeeFrameData() {
 	tXbeeFrame.escape = false;
 }
 
-
+// *****************************************************************************************
 // Send frame byte via xbee module.
 uint8_t xbeeByteTx(uint8_t b, bool escapeMode) {
 	if (escapeMode && (b == START_BYTE || b == ESCAPE_BYTE || b == XON_BYTE || b == XOFF_BYTE)) {
@@ -107,7 +112,7 @@ uint8_t xbeeByteTx(uint8_t b, bool escapeMode) {
 	}
 }
 
-
+// *****************************************************************************************
 // Send data to coordinator via ZB Transmit Request frame.
 void ZBTransmitRequest(const uint8_t *dataTxBuffer) {
 	xbeeByteTx(START_BYTE, ESCAPE_OFF);									// 0. Start byte
@@ -147,7 +152,7 @@ void ZBTransmitRequest(const uint8_t *dataTxBuffer) {
 	xbeeByteTx(checksum, ESCAPE_ON);
 }
 
-
+// *****************************************************************************************
 // ZB Receive Packet frame (0x90) handler using UART1 RX interrupt service.
 void UART1IntHandler(void){
 	uint32_t ui32Status;
@@ -168,8 +173,8 @@ void UART1IntHandler(void){
 
 		// Check if new packet start before previous packet completed. Discard previous packet and start over.
 		if (tXbeeFrame.pos > 0 && rxB == START_BYTE) {
-			resetXbeeFrameData();
-			tXbeeFrame.pos = 0;
+			tXbeeFrame.errorCode = UNEXPECTED_START_BYTE;
+			return;
 		}
 
 		if ((tXbeeFrame.pos > 0) && (rxB == ESCAPE_BYTE)) {
@@ -191,17 +196,30 @@ void UART1IntHandler(void){
 
 		switch(tXbeeFrame.pos) {
 			case 0:
-				if (rxB == START_BYTE) {}
+				if (rxB == START_BYTE) {
+					ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
+					tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
+					tXbeeFrame.pos++;
+				}
 				break;
 			case 1:
 				// msb length shouldn't be used because frames length will be short.
+				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
+				tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
+				tXbeeFrame.pos++;
 				break;
 			case 2:
 				// lsb length
 				tXbeeFrame.lsbRxFrameLength = rxB;	//rxFrameLengthCalculation();
+				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
+				tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
+				tXbeeFrame.pos++;
 				break;
 			case 3:
 				tXbeeFrame.frameType = rxB;
+				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
+				tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
+				tXbeeFrame.pos++;
 				break;
 			default:
 				// Starts at fifth byte
@@ -211,8 +229,10 @@ void UART1IntHandler(void){
 					return;
 				}
 
+				ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);	// Write back to UART0 for PC displaying
+
 				// Store received data message from ZB Receive Packet frame (0x90)
-				else if ((tXbeeFrame.pos >= RECEIVED_DATA_IDX) && (tXbeeFrame.pos < (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) && (tXbeeFrame.frameType == 0x90)) {
+				if ((tXbeeFrame.pos >= RECEIVED_DATA_IDX) && (tXbeeFrame.pos < (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) && (tXbeeFrame.frameType == 0x90)) {
 					tXbeeFrame.message[tXbeeFrame.messageIdx] = rxB;
 					tXbeeFrame.messageIdx++;
 				}
@@ -223,6 +243,8 @@ void UART1IntHandler(void){
 					if ((tXbeeFrame.rxChecksumTotal & 0xff) == 0xff) {
 						tXbeeFrame.rx_complete = true;
 						tXbeeFrame.errorCode = NO_ERROR;
+						UART0Send((uint8_t *)"\n\r");	// With last byte received, send new line and return commands.
+
 						ZBTransmitRequest((uint8_t *)"t20.5|h50.2|l180.5");
 						if(!ustrcmp((char *)tXbeeFrame.message, (char *)stringOn)){
 							ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_GREEN);
@@ -237,24 +259,12 @@ void UART1IntHandler(void){
 						return;
 					}
 				}
-				// Length of frame doesn't agree with bytes received.
-				/*else {
-					tXbeeFrame.errorCode = FRAME_TOTAL_LENGTH_ERROR;
-				}*/
+				tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
+				tXbeeFrame.pos++;
 		}
-
-		// Store each received frame byte in rxFrameData array.
-		tXbeeFrame.rxFrameData[tXbeeFrame.pos] = rxB;
-		// Write back to UART0 for PC displaying
-		ROM_UARTCharPutNonBlocking(UART0_BASE, rxB);
-		// If the last byte was received, then send new line and return commands.
-		if (tXbeeFrame.pos == (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) {
-			UART0Send((uint8_t *)"\n\r");
-		}
-
-		tXbeeFrame.pos++;
 	}
 }
+
 
 // Main ----------------------------------------------------------------------------------------------
 int main(void){

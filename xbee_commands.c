@@ -1,46 +1,47 @@
 //*****************************************************************************
-// rgb_commands.c - Command line functionality implementation
-// This is part of revision 2.0.1.11577 of the EK-TM4C123GXL Firmware Package.
+// xbee_commands.c - Command line functionality implementation for xbee data
+// 					 messages received.
+// argv - Store string
 //*****************************************************************************
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "inc/hw_types.h"
-#include "utils/ustdlib.h"
-#include "utils/cmdline.h"
+#include "driverlib/gpio.h"
+#include "driverlib/rom.h"
+#include "inc/hw_memmap.h"
+#include "xbee_cmd_handler.h"
 #include "xbee_commands.h"
-#include "ctype.h"
-#include "rgb_driver.h"
 
 //*****************************************************************************
 // Table of valid command strings, callback functions and help messages.  This
 // is used by the cmdline module.
 //*****************************************************************************
-tCmdLineEntry g_psCmdTable[] =
-{
+tCmdLineEntry g_psCmdTable[] = {
     {"help", CMD_help, " : Display list of commands" },
     {"on", CMD_set_on, " : Turn on"},
-    {"off", CMD_set_off, " : Turn off"},
+    {"off", CMD_set_off, " : Turn off"}
 };
 
 //*****************************************************************************
 // Print the help strings for all commands.
-int CMD_help(int argc, char **argv){
-    return (0);
+int8_t CMD_help(uint8_t argc, uint8_t **argv) {
+    return 0;
 }
 
 //*****************************************************************************
 
-int CMD_set_on(int argc, char **argv){
+int8_t CMD_set_on(uint8_t argc, uint8_t **argv) {
 	if(argc == 1){
-		ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_GREEN);
+		// Turn green LED on.
+		ROM_GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_3|GPIO_PIN_2, GPIO_PIN_3);
 	}
 	return 0;
 }
 
-int CMD_set_off(int argc, char **argv){
+int8_t CMD_set_off(uint8_t argc, uint8_t **argv) {
 	if(argc == 1){
-		ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_RED);
+		// Turn red LED on.
+		ROM_GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_3|GPIO_PIN_2, GPIO_PIN_1);
 	}
 	return 0;
 }

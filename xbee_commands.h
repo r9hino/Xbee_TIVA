@@ -1,6 +1,7 @@
 //*****************************************************************************
 // xbee_commands.h - Prototypes functions that handles commands sended
 // 					 from server to xbee
+//*****************************************************************************
 
 
 #ifndef __XBEE_COMMANDS_H__
@@ -15,8 +16,8 @@
 // Declaration for the callback functions that will implement the command line
 // functionality.  These functions get called by the command line interpreter
 // when the corresponding command is typed into the command line.
-extern int CMD_help(int argc, char **argv);
-extern int CMD_set_on(int argc, char **argv);
-extern int CMD_set_off(int argc, char **argv);
+extern int8_t CMD_help(uint8_t argc, uint8_t **argv);
+extern int8_t CMD_set_on(uint8_t argc, uint8_t **argv);
+extern int8_t CMD_set_off(uint8_t argc, uint8_t **argv);
 
 #endif //__XBEE_COMMANDS_H__

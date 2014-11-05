@@ -15,9 +15,10 @@
 #include "driverlib/timer.h"
 #include "utils/ustdlib.h"
 #include "init_config.h"
+#include "xbee_cmd_handler.h"
 
 
-// *****************************************************************************************
+//**************************************************************************************************
 // Defines
 
 // LED GPIOs
@@ -26,7 +27,7 @@
 #define LED_GREEN GPIO_PIN_3
 
 // Xbee Defines
-#define MAX_FRAME_DATA_SIZE	      		   24
+#define MAX_FRAME_SIZE	      		       24
 #define FRAME_TYPE_IDX		       		    3
 #define RECEIVED_DATA_IDX		  		   15	// Idx for received data in ZB Receive Packet frame
 // Especial data frame bytes
@@ -47,18 +48,18 @@
 #define ZB_TRANSMIT_REQUEST				 0x10
 #define ZB_RECEIVE_PACKET				 0x90
 
-// *****************************************************************************************
+//**************************************************************************************************
 // Global variables
 
 // Data frame structure. Save frame parameters.
 typedef struct {
-	uint8_t rxFrameData[MAX_FRAME_DATA_SIZE];	// Store UART1 received data.
+	uint8_t rxFrameData[MAX_FRAME_SIZE];	// Store UART1 received data.
 	uint8_t pos;				// Store received byte position in frame.
 	uint8_t lsbRxFrameLength;	// Store frame length. msb not used because frames are shorts.
 	uint8_t frameType;
 	bool rx_complete;			// True when all frame packets were successfully received.
 	uint16_t rxChecksumTotal;	// Save frame checksum.
-	char message[MAX_FRAME_DATA_SIZE - 16];	// Store message received from ZB Receive Packet frame.
+	uint8_t message[MAX_FRAME_SIZE - 16];	// Store message received from ZB Receive Packet frame.
 	uint8_t messageIdx;			// Index for each message byte.
 	uint8_t errorCode;
 	bool escape;				// True when next frame byte will be the original escaped byte.
@@ -68,14 +69,16 @@ tXbee tXbeeFrame;
 // Store expected string to be received on message array in tXbee struct.
 // Array size must be equal to message array size in tXbee struct.
 // MAX_FRAME_DATA_SIZE - 16 = 8. This way dynamically memory allocation is avoided.
-const uint8_t stringOn[MAX_FRAME_DATA_SIZE - 16] = {'o','n',0,0,0,0,0,0};
-const uint8_t stringOff[MAX_FRAME_DATA_SIZE - 16] = {'o','f','f',0,0,0,0,0};
+const uint8_t stringOn[MAX_FRAME_SIZE - 16] = {'o','n',0,0,0,0,0,0};
+const uint8_t stringOff[MAX_FRAME_SIZE - 16] = {'o','f','f',0,0,0,0,0};
 
+bool flag_UART1_received_data = false;	// Flag tell when new data has arrive in UART1 from xbee module.
+bool flag_xbeeDataMsg_ready = false;	// Flag tell when xbee data message is ready (received).
 
-// *****************************************************************************************
+//**************************************************************************************************
 // Functions
 
-// *****************************************************************************************
+//**************************************************************************************************
 // Send string to PC from UART0 using uart.h driver.
 void UART0Send(const uint8_t *stringBuffer){
 	uint8_t stringLength = ustrlen((char *)stringBuffer);	// Get string length.
@@ -83,13 +86,14 @@ void UART0Send(const uint8_t *stringBuffer){
 		ROM_UARTCharPut(UART0_BASE, *stringBuffer++);
 	}
 }
-// *****************************************************************************************
+
+//**************************************************************************************************
 void resetXbeeFrameData() {
 	uint8_t i;
-	for (i = 0; i<MAX_FRAME_DATA_SIZE; i++) {
+	for (i = 0; i<MAX_FRAME_SIZE; i++) {
 		tXbeeFrame.rxFrameData[i] = 0;
 		// Clear message array of length (MAX_FRAME_DATA_SIZE - 16).
-		if(i < MAX_FRAME_DATA_SIZE - 16)   tXbeeFrame.message[i] = 0;
+		if(i < MAX_FRAME_SIZE - 16)   tXbeeFrame.message[i] = 0;
 	}
 	tXbeeFrame.pos = 0;
 	tXbeeFrame.lsbRxFrameLength = 0;
@@ -101,7 +105,7 @@ void resetXbeeFrameData() {
 	tXbeeFrame.escape = false;
 }
 
-// *****************************************************************************************
+//**************************************************************************************************
 // Send frame byte via xbee module.
 uint8_t xbeeByteTx(uint8_t b, bool escapeMode) {
 	if (escapeMode && (b == START_BYTE || b == ESCAPE_BYTE || b == XON_BYTE || b == XOFF_BYTE)) {
@@ -115,13 +119,14 @@ uint8_t xbeeByteTx(uint8_t b, bool escapeMode) {
 	}
 }
 
-// *****************************************************************************************
+//**************************************************************************************************
 // Send data to coordinator via ZB Transmit Request frame.
 void ZBTransmitRequest(const uint8_t *dataTxBuffer) {
 	xbeeByteTx(START_BYTE, ESCAPE_OFF);									// 0. Start byte
 	xbeeByteTx(0x00, ESCAPE_ON);										// 1. msb length
 
-	uint8_t dataTxLength = ustrlen((char *)dataTxBuffer);	// Get Tx data length.
+	// Get Tx data length.
+	uint8_t dataTxLength = ustrlen((char *)dataTxBuffer);
 	xbeeByteTx(14 + dataTxLength, ESCAPE_ON);							// 2. lsb length
 
 	uint8_t checksum = 0;
@@ -145,7 +150,7 @@ void ZBTransmitRequest(const uint8_t *dataTxBuffer) {
 	checksum += xbeeByteTx(0x00, ESCAPE_ON);							// 15. Broadcast Radius
 	checksum += xbeeByteTx(0x00, ESCAPE_ON);							// 16. Options
 
-	// transmit data.
+	// Transmit data buffer.
 	uint8_t i;
 	for (i=0; i<dataTxLength; i++) {
 		checksum += xbeeByteTx(dataTxBuffer[i], ESCAPE_ON);				// 17. Start of data to send.
@@ -155,16 +160,11 @@ void ZBTransmitRequest(const uint8_t *dataTxBuffer) {
 	xbeeByteTx(checksum, ESCAPE_ON);
 }
 
-// *****************************************************************************************
-// ZB Receive Packet frame (0x90) handler using UART1 RX interrupt service.
-void UART1IntHandler(void){
-	uint32_t ui32Status;
-	uint8_t rxB;	// Received xbee byte.
 
-	// Get the interrrupts register status.
-	ui32Status = ROM_UARTIntStatus(UART1_BASE, true);
-	// Clear the asserted interrupts. Must be done early in handler.
-	ROM_UARTIntClear(UART1_BASE, ui32Status);
+//**************************************************************************************************
+// ZB Receive Packet frame (0x90) handler using UART1 RX interrupt service.
+void ZBReceivePacket(void) {
+	uint8_t rxB;	// Received xbee byte.
 
 	// Clear all old frame parameters when new frame arrive.
 	if (tXbeeFrame.rx_complete || tXbeeFrame.errorCode) {
@@ -223,7 +223,7 @@ void UART1IntHandler(void){
 				break;
 			default:
 				// Starts at fifth byte
-				if (tXbeeFrame.pos > MAX_FRAME_DATA_SIZE) {
+				if (tXbeeFrame.pos > MAX_FRAME_SIZE) {
 					// Exceed max size (Error code is 2).
 					tXbeeFrame.errorCode = PACKET_EXCEEDS_BYTE_ARRAY_LENGTH;
 					return;
@@ -231,6 +231,7 @@ void UART1IntHandler(void){
 
 				// Store received data message from ZB Receive Packet frame (0x90)
 				if ((tXbeeFrame.pos >= RECEIVED_DATA_IDX) && (tXbeeFrame.pos < (tXbeeFrame.lsbRxFrameLength + FRAME_TYPE_IDX)) && (tXbeeFrame.frameType == 0x90)) {
+					// Fill array with data byte received.
 					tXbeeFrame.message[tXbeeFrame.messageIdx] = rxB;
 					tXbeeFrame.messageIdx++;
 				}
@@ -243,12 +244,8 @@ void UART1IntHandler(void){
 						tXbeeFrame.errorCode = NO_ERROR;
 						UART0Send((uint8_t *)"\n\r");	// With last byte received, send new line and return commands.
 
-						if(!ustrcmp((char *)tXbeeFrame.message, (char *)stringOn)){
-							ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_GREEN);
-						}
-						if(!ustrcmp((char *)tXbeeFrame.message, (char *)stringOff)){
-							ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_RED);
-						}
+						// Xbee data message receive must be complete. Now xbee_cmdline can parse sended cmd.
+						flag_xbeeDataMsg_ready = true;
 					}
 					// Checksum failed.
 					else {
@@ -262,7 +259,21 @@ void UART1IntHandler(void){
 	}
 }
 
-//*****************************************************************************
+//**************************************************************************************************
+// UART1 RX interrupt Handler.
+void UART1IntHandler(void){
+	uint32_t ui32Status;
+
+	// Get the interrrupts register status.
+	ui32Status = ROM_UARTIntStatus(UART1_BASE, true);
+	// Clear the asserted interrupts. Must be done early in handler.
+	ROM_UARTIntClear(UART1_BASE, ui32Status);
+
+	// Set flag for ZBReceivePacket function execution.
+	flag_UART1_received_data = true;
+}
+
+//**************************************************************************************************
 // The interrupt handler for TIMER0 interrupt. It periodically transmit read sensor data.
 void Timer0IntHandler(void) {
     // Clear the timer interrupt.
@@ -276,7 +287,7 @@ void Timer0IntHandler(void) {
     ZBTransmitRequest((uint8_t *)"t20.5|h50.2|l180.5");
 }
 
-// Main ----------------------------------------------------------------------------------------------
+//**************************************************************************************************
 int main(void){
 	// Setup the system clock to run at 80 Mhz from PLL with crystal reference
 	ROM_SysCtlClockSet(SYSCTL_SYSDIV_2_5|SYSCTL_USE_PLL|SYSCTL_XTAL_16MHZ|SYSCTL_OSC_MAIN);
@@ -299,18 +310,41 @@ int main(void){
 	// Initialize xbee frame structure parameters.
 	resetXbeeFrameData();
 
-	//ZBTransmitRequest((uint8_t *)"t20.5-h50.2-l8.5");
-	//ZBTransmitRequest(4);
+	// Store return value from xbeeCmdLineProcess
+	int8_t i32CommandStatus;
 
 	while(1){
-		// Idea: use callback function in UARTHandler receive data and execute it when rx complete.
-		// Then add actions like: ROM_GPIOPinWrite
-		/*if(!ustrcmp((char *)tXbeeFrame.message, (char *)stringOn)){
-			ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_GREEN);
+		// Enter when new packet has arrived in UART1.
+		if(flag_UART1_received_data == true) {
+			// Turn off the flag so ZBReceivePacket can be called again after a new interrupt in UART1 Rx.
+			flag_UART1_received_data = false;
+			ZBReceivePacket();
 		}
-		if(!ustrcmp((char *)tXbeeFrame.message, (char *)stringOff)){
-			ROM_GPIOPinWrite(GPIO_PORTF_BASE, LED_RED|LED_GREEN|LED_BLUE, LED_RED);
-		}*/
+
+		// Enter when xbee data message is retrieved from ZBReceivePacket frame.
+		if(flag_xbeeDataMsg_ready == true) {
+			// Turn off the flag in order to enter just one time here.
+			flag_xbeeDataMsg_ready = false;
+
+			// Pass xbee data message to command line processor.
+			i32CommandStatus = xbeeCmdLineProcess(tXbeeFrame.message);
+
+			// Handle the case of bad command.
+	        if(i32CommandStatus == CMDLINE_BAD_CMD){
+	        	UART0Send((uint8_t *)"Bad command!\n\r");
+	        }
+
+	        // Handle the case of too many arguments.
+	        else if(i32CommandStatus == CMDLINE_TOO_MANY_ARGS){
+	        	UART0Send((uint8_t *)"Too many arguments for xbee command processor!\n\r");
+	        }
+
+		}
+		// Idea: use callback function in UARTHandler receive data and execute it when rx complete.
+		// Then add actions like: ROM_GPIOPinWrite.
+		// TO-DO: - Store sensor data in a structure and then send it to a string
+		// 			creation routine to form "t20.5|h50.2|l180.5".
+
 	}
 }
 

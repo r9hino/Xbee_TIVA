@@ -9,8 +9,8 @@
 #include "driverlib/gpio.h"
 #include "driverlib/rom.h"
 #include "inc/hw_memmap.h"
-#include "xbee_cmd_handler.h"
-#include "xbee_commands.h"
+#include "lib_xbee/xbee_data_parser.h"
+#include "lib_xbee/xbee_commands.h"
 
 //*****************************************************************************
 // Table of valid command strings, callback functions and help messages.  This
@@ -19,8 +19,12 @@
 tCmdLineEntry g_psCmdTable[] = {
     {"help", CMD_help, " : Display list of commands" },
     {"on", CMD_set_on, " : Turn on"},
-    {"off", CMD_set_off, " : Turn off"}
+    {"off", CMD_set_off, " : Turn off"},
+    {"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CMD_set_test, " : Test data payload"},
 };
+
+// argc is the number of arguments.
+// argv is an array with the function's string parameters.
 
 //*****************************************************************************
 // Print the help strings for all commands.
@@ -42,6 +46,14 @@ int8_t CMD_set_off(uint8_t argc, uint8_t **argv) {
 	if(argc == 1){
 		// Turn red LED on.
 		ROM_GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_3|GPIO_PIN_2, GPIO_PIN_1);
+	}
+	return 0;
+}
+
+int8_t CMD_set_test(uint8_t argc, uint8_t **argv) {
+	if(argc == 1){
+		// Turn red LED on.
+		ROM_GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1|GPIO_PIN_3|GPIO_PIN_2, GPIO_PIN_2);
 	}
 	return 0;
 }

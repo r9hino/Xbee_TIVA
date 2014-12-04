@@ -1,5 +1,5 @@
 /*
- * xbee_cmd_handler.c - Process command received from xbee data message.
+ * xbee_cmd_handler.c - Parse and process command received from xbee data messages.
  *
  *  Created on: 05-11-2014
  *      Author: Philippe Ilharreguy
@@ -7,8 +7,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "utils/ustdlib.h"
-#include "xbee_cmd_handler.h"
+#include "lib_utils/ustdlib.h"
+#include "lib_xbee/xbee_data_parser.h"
 
 //*****************************************************************************
 // Defines the maximum number of arguments that can be parsed.
@@ -53,8 +53,7 @@ int8_t xbeeCmdLineProcess(uint8_t *xbeeCmdLine) {
 
     // Advance through the command line until a zero character is found.
     while (*xbeeChar != 0)     {
-        // If there is a space, then replace it with a zero, and set the flag
-        // to search for the next argument.
+        // If there is a space, then replace it with a zero, and set the flag to search for the next argument.
         if (*xbeeChar == ' ') {
             *xbeeChar = 0;
             bFindArg = true;

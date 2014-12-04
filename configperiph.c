@@ -2,7 +2,7 @@
  * init_config.c
  *
  *  Created on: 28-10-2014
- *      Author: Philippe Ilharreguy
+ *      Author: r9hino
  */
 
 #include <stdint.h>
@@ -15,13 +15,14 @@
 #include "driverlib/sysctl.h"
 #include "driverlib/timer.h"
 #include "driverlib/uart.h"
-#include "init_config.h"
+#include "utils/uartstdio.h"
+#include "configperiph.h"
 
 void ConfigureTimer0 (void) {
 	// Enable Timer0
 	ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
 	ROM_TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
-	ROM_TimerLoadSet(TIMER0_BASE, TIMER_A, TIMER_PERIOD_5SEC*ROM_SysCtlClockGet());
+	ROM_TimerLoadSet(TIMER0_BASE, TIMER_A, TIMER_PERIOD_45SEC*ROM_SysCtlClockGet());
 	ROM_TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
 	ROM_IntEnable(INT_TIMER0A);
 	ROM_TimerEnable(TIMER0_BASE, TIMER_A);
@@ -39,7 +40,6 @@ void ConfigureUART0(void){
 	ROM_GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
 
     // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
-	// The following two lines must be present. Why?
     ROM_UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC);
     ROM_UARTConfigSetExpClk(UART0_BASE, 16000000, 115200, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
 }
@@ -56,16 +56,21 @@ void ConfigureUART1(void){
 	ROM_GPIOPinTypeUART(GPIO_PORTB_BASE, GPIO_PIN_0 | GPIO_PIN_1);
 
     // Configure UART clock using UART utils. The above line does not work by itself to enable the UART.
-	// The following two lines must be present. Why?
     ROM_UARTClockSourceSet(UART1_BASE, UART_CLOCK_PIOSC);
-    ROM_UARTConfigSetExpClk(UART1_BASE, 16000000, 9600, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
+    /*
+    ROM_UARTConfigSetExpClk(UART1_BASE, 16000000, 115200, (UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE));
 
 	// Enable the UART1 interrupt.
 	ROM_IntEnable(INT_UART1);
 
+	// Set queue FIFO level interrupt.
+	ROM_UARTFIFOLevelSet(UART1_BASE, UART_FIFO_TX1_8, UART_FIFO_RX1_8);
+
 	// Two interrupt triggers: UART RX interrupt for a 1/8 of FIFO queue,
 	// and Receive Timeout (RT) interrupt when 1/8 FIFO is not reach.
 	ROM_UARTIntEnable(UART1_BASE, UART_INT_RX | UART_INT_RT);
+	*/
 
-	ROM_UARTFIFOLevelSet(UART1_BASE, UART_FIFO_TX1_8, UART_FIFO_RX1_8);
+	// Initialize the UART for console I/O.
+	UARTStdioConfig(1, 115200, 16000000);
 }

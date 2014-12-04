@@ -19,5 +19,6 @@
 extern int8_t CMD_help(uint8_t argc, uint8_t **argv);
 extern int8_t CMD_set_on(uint8_t argc, uint8_t **argv);
 extern int8_t CMD_set_off(uint8_t argc, uint8_t **argv);
+extern int8_t CMD_set_test(uint8_t argc, uint8_t **argv);
 
 #endif //__XBEE_COMMANDS_H__

@@ -56,7 +56,7 @@ extern uint32_t __STACK_TOP;
 // External declarations for the interrupt handlers used by the application.
 //
 //*****************************************************************************
-extern void UART1IntHandler(void);
+extern void UARTStdioIntHandler(void);	// Used in UART1
 extern void Timer0IntHandler(void);
 
 //*****************************************************************************
@@ -92,7 +92,7 @@ void (* const g_pfnVectors[])(void) =
     IntDefaultHandler,                      // GPIO Port D
     IntDefaultHandler,                      // GPIO Port E
     IntDefaultHandler,                      // UART0 Rx and Tx
-    UART1IntHandler,                      // UART1 Rx and Tx
+    UARTStdioIntHandler,                      // UART1 Rx and Tx
     IntDefaultHandler,                      // SSI0 Rx and Tx
     IntDefaultHandler,                      // I2C0 Master and Slave
     IntDefaultHandler,                      // PWM Fault

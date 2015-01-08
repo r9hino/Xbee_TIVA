@@ -17,17 +17,10 @@ extern "C"
 {
 #endif
 
-// Timers
-#define TIMER_PERIOD_5SEC					5
-#define TIMER_PERIOD_10SEC				   10
-#define TIMER_PERIOD_15SEC				   15
-#define TIMER_PERIOD_30SEC				   30
-#define TIMER_PERIOD_45SEC				   45
-#define TIMER_PERIOD_300SEC				  300	// Too much 80 000 000*300 > 2^32
-
-void ConfigureTimer0(void);
+void ConfigureTimer0(uint16_t timePeriod);
 void ConfigureUART0(void);
 void ConfigureUART1(void);
+void ConfigureI2C3(void);
 
 //*****************************************************************************
 // Mark the end of the C bindings section for C++ compilers.

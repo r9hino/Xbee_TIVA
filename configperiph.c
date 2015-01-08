@@ -18,11 +18,11 @@
 #include "utils/uartstdio.h"
 #include "configperiph.h"
 
-void ConfigureTimer0 (void) {
+void ConfigureTimer0 (uint16_t timePeriod) {
 	// Enable Timer0
 	ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);
 	ROM_TimerConfigure(TIMER0_BASE, TIMER_CFG_PERIODIC);
-	ROM_TimerLoadSet(TIMER0_BASE, TIMER_A, TIMER_PERIOD_45SEC*ROM_SysCtlClockGet());
+	ROM_TimerLoadSet(TIMER0_BASE, TIMER_A, timePeriod*ROM_SysCtlClockGet());
 	ROM_TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
 	ROM_IntEnable(INT_TIMER0A);
 	ROM_TimerEnable(TIMER0_BASE, TIMER_A);
@@ -73,4 +73,19 @@ void ConfigureUART1(void){
 
 	// Initialize the UART for console I/O.
 	UARTStdioConfig(1, 115200, 16000000);
+}
+
+void ConfigureI2C3(void){
+    // The I2C3 peripheral must be enabled before use.
+    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_I2C3);
+    ROM_SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOD);
+    // Configure the pin muxing for I2C3 functions on port D0 and D1.
+    // This step is not necessary if your part does not support pin muxing.
+    ROM_GPIOPinConfigure(GPIO_PD0_I2C3SCL);
+    ROM_GPIOPinConfigure(GPIO_PD1_I2C3SDA);
+    // Select the I2C function for these pins. This function will also configure the GPIO pins for
+    // I2C operation, setting them to open-drain operation with weak pull-ups. Consult the data
+    // sheet to see which functions are allocated per pin.
+    ROM_GPIOPinTypeI2CSCL(GPIO_PORTD_BASE, GPIO_PIN_0);
+    ROM_GPIOPinTypeI2C(GPIO_PORTD_BASE, GPIO_PIN_1);
 }
